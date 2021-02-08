@@ -764,6 +764,9 @@ Outputs:
   VPC:
     Description: "The 3x3 VPC"
     Value: !Ref VPC
+  VPCCidrBlock:
+    Description: "The VPC CidrBlock"
+    Value: !GetAtt VPC.CidrBlock
   PublicSubnetA:
     Description: "Public Subnet in Availability Zone A"
     Value: !Ref PublicSubnetA
