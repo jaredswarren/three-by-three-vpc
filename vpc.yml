@@ -1,0 +1,762 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A 'three by three' VPC (3 AZs with 3 subnets each - private, protected, public)
+
+#
+# Parameters
+#
+
+Parameters:
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  KeyPairName:
+    Type: String
+    Default: "jarewarr-demo06"
+  FirewallLogsBucketName:
+    Type: String
+    Default: jarewarr-demo06-firewall
+  VPCFlowLogsBucketName:
+    Type: String
+    Default: jarewarr-demo06-vpcflow
+  FirewallName:
+    Type: String
+    Default: NetworkFirewall
+  Boto3LambdaLayerS3BucketName:
+    Type: String
+    Default: jarewarr-examples-us-east-1
+  Boto3LambdaLayerS3Key:
+    Type: String
+    Default: boto3-layer.zip
+  CrHelperLambdaLayerS3BucketName:
+    Type: String
+    Default: jarewarr-examples-us-east-1
+  CrHelperLambdaLayerS3Key:
+    Type: String
+    Default: crhelper-layer.zip
+  LambdaSourceS3BucketName:
+    Type: String
+    Default: jarewarr-examples-us-east-1
+  LambdaSourceS3Key:
+    Type: String
+    Default: setup-firewall-routes.zip
+
+Resources:
+#
+# VPC Stuff
+#
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: "default"
+  IGW:
+    Type: "AWS::EC2::InternetGateway"
+  IGWAttachment:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref VPC
+  VPCFlowLog:
+    Type: "AWS::EC2::FlowLog"
+    Properties:
+      LogDestination: !Join [ ":", ["arn", "aws", "s3", "", "", !Ref VPCFlowLogsBucketName]]
+      LogDestinationType: "s3"
+      MaxAggregationInterval: 60
+      ResourceType: "VPC"
+      ResourceId: !Ref VPC
+      TrafficType: "ALL"
+#  
+# Subnets
+#
+  PublicSubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: "10.0.0.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Public-A"
+  PublicSubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1b"
+      CidrBlock: "10.0.1.0/24"
+      MapPublicIpOnLaunch: false
+      Tags: 
+        - Key: "Name"
+          Value: "Public-B"
+  PublicSubnetC:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1c"
+      CidrBlock: "10.0.2.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Public-C"
+  ProtectedSubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: "10.0.10.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Protected-A"     
+  ProtectedSubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1b"
+      CidrBlock: "10.0.11.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Protected-B"
+  ProtectedSubnetC:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1c"
+      CidrBlock: "10.0.12.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Protected-C"
+  PrivateSubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1a"
+      CidrBlock: "10.0.20.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Private-A"
+  PrivateSubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1b"
+      CidrBlock: "10.0.21.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Private-B"
+  PrivateSubnetC:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: "us-east-1c"
+      CidrBlock: "10.0.22.0/24"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "Private-C"
+#
+# NAT Gateways
+#
+  EIPNATA:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: "vpc"
+  EIPNATB:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: "vpc"
+  EIPNATC:
+    Type: "AWS::EC2::EIP"
+    Properties:
+      Domain: "vpc"
+  NATGatewayA:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNATA.AllocationId
+      SubnetId: !Ref ProtectedSubnetA
+  NATGatewayB:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNATB.AllocationId
+      SubnetId: !Ref ProtectedSubnetB
+  NATGatewayC:
+    Type: "AWS::EC2::NatGateway"
+    Properties:
+      AllocationId: !GetAtt EIPNATC.AllocationId
+      SubnetId: !Ref ProtectedSubnetC
+#
+# Route Tables
+#
+  RouteTablePublicA:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-public-a"
+  RoutePublicA01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicA
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+  RouteTablePublicB:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-public-b"
+  RoutePublicB01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicB
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+  RouteTablePublicC:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-public-c"
+  RoutePublicC01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicC
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref IGW
+  RouteTableProtectedA:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-protected-a"
+  RouteProtectedA01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedA
+      DestinationCidrBlock: "0.0.0.0/0"
+      VpcEndpointId: !Select [1, !Split [":", !Select [0, !GetAtt Firewall.EndpointIds]]]
+  RouteTableProtectedB:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-protected-b"
+  RouteProtectedB01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedB
+      DestinationCidrBlock: "0.0.0.0/0"
+      VpcEndpointId: !Select [1, !Split [":", !Select [1, !GetAtt Firewall.EndpointIds]]]
+  RouteTableProtectedC:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-protected-c"
+  RouteProtectedC01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedC
+      DestinationCidrBlock: "0.0.0.0/0"
+      VpcEndpointId: !Select [1, !Split [":", !Select [2, !GetAtt Firewall.EndpointIds]]]
+  RouteTablePrivateA:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-private-a"
+  RouteTablePrivateB:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-private-b"
+  RouteTablePrivateC:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "3x3-private-c"
+  RoutePrivateA01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateA
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGatewayA
+  RoutePrivateB01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateB
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGatewayB
+  RoutePrivateC01:
+    Type: "AWS::EC2::Route"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateC
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGatewayC
+  RouteTableAssociationPublicA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicA
+      SubnetId: !Ref PublicSubnetA
+  RouteTableAssociationPublicB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicB
+      SubnetId: !Ref PublicSubnetB
+  RouteTableAssociationPublicC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePublicC
+      SubnetId: !Ref PublicSubnetC
+  RouteTableAssociationProtectedA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedA
+      SubnetId: !Ref ProtectedSubnetA  
+  RouteTableAssociationProtectedB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedB
+      SubnetId: !Ref ProtectedSubnetB
+  RouteTableAssociationProtectedC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTableProtectedC
+      SubnetId: !Ref ProtectedSubnetC
+  RouteTableAssociationPrivateA:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateA
+      SubnetId: !Ref PrivateSubnetA
+  RouteTableAssociationPrivateB:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateB
+      SubnetId: !Ref PrivateSubnetB
+  RouteTableAssociationPrivateC:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      RouteTableId: !Ref RouteTablePrivateC
+      SubnetId: !Ref PrivateSubnetC
+#
+# Squirrely lambda workaround to setup VPC endpoints for Firewall
+#
+  CrHelperLambdaLayer:
+    Type: "AWS::Lambda::LayerVersion"
+    Properties:
+      CompatibleRuntimes:
+        - "python3.8"
+      Content:
+        S3Bucket: !Ref CrHelperLambdaLayerS3BucketName
+        S3Key: !Ref CrHelperLambdaLayerS3Key
+  Boto3LambdaLayer:
+    Type: "AWS::Lambda::LayerVersion"
+    Properties:
+      CompatibleRuntimes:
+        - "python3.8"
+      Content:
+        S3Bucket: !Ref Boto3LambdaLayerS3BucketName
+        S3Key: !Ref Boto3LambdaLayerS3Key
+  VPCEndpointSetupLambdaExecutionPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Allow"
+            Action: 
+              - "network-firewall:DescribeFirewall"
+            Resource:
+              - !Join [":", ["arn", "aws", "network-firewall", !Ref "AWS::Region", !Ref "AWS::AccountId", !Join ["/", ["firewall" , !Ref FirewallName ]]]]
+          - Effect: "Allow"
+            Action:
+              - "ec2:CreateRoute"
+              - "ec2:CreateRouteTable"
+              - "ec2:DescribeRouteTables"
+              - "ec2:DeleteRouteTable"
+              - "ec2:DescribeSubnets"
+              - "ec2:CreateTags"
+            Resource: "*"
+          - Effect: "Allow"
+            Action:
+              - "ec2:DissociateRouteTable"
+              - "ec2:AssociateRouteTable"
+            Resource: "*"
+  VPCEndpointSetupLambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - !Ref VPCEndpointSetupLambdaExecutionPolicy
+  VPCEndpointSetupLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Role: !GetAtt VPCEndpointSetupLambdaExecutionRole.Arn
+      Runtime: "python3.8"
+      Handler: "setup_firewall_routes.handler"
+      Timeout: 60
+      MemorySize: 256
+      Layers:
+        - !Ref Boto3LambdaLayer
+        - !Ref CrHelperLambdaLayer
+      Code:
+        S3Bucket: !Ref LambdaSourceS3BucketName
+        S3Key: !Ref LambdaSourceS3Key
+  SetupVPCEndpointsCustom:
+    Type: Custom::VPCEndpointSetupLambdaFunction
+    Properties:
+      ServiceToken: !GetAtt VPCEndpointSetupLambdaFunction.Arn
+      Routes: 
+        - PublicSubnet: !Ref PublicSubnetA
+          ProtectedSubnet: !Ref ProtectedSubnetA
+          AvailabilityZone: "us-east-1a"
+        - PublicSubnet: !Ref PublicSubnetB
+          ProtectedSubnet: !Ref ProtectedSubnetB
+          AvailabilityZone: "us-east-1b"
+        - PublicSubnet: !Ref PublicSubnetC
+          ProtectedSubnet: !Ref ProtectedSubnetC
+          AvailabilityZone: "us-east-1c"
+      VpcId: !Ref VPC
+      GatewayId: !Ref IGW
+      AnotherArg: "abc"
+    DependsOn: 
+      - IGW
+      - Firewall
+      - FirewallPolicy
+      - FirewallStatefulRuleGroup
+      - PublicSubnetA
+      - PublicSubnetB
+      - PublicSubnetC
+      - ProtectedSubnetA
+      - ProtectedSubnetB
+      - ProtectedSubnetC
+      - PrivateSubnetA
+      - PrivateSubnetB
+      - PrivateSubnetC
+
+#
+# Firewall
+#
+  FirewallStatefulRuleGroup:
+    Type: "AWS::NetworkFirewall::RuleGroup"
+    Properties:
+      Capacity: 15000
+      RuleGroupName: "allow-aws-console"
+      Type: "STATEFUL"
+      RuleGroup:
+        RulesSource:
+          RulesSourceList:
+            Targets: 
+              - ".aws.amazon.com"
+              - ".amazonaws.com"
+              - ".awsstatic.com"
+              - "d1dgtfo2wk29o4.cloudfront.net"
+              - "d2q66yyjeovezo.cloudfront.net"
+              - "d1n904rdblmhgf.cloudfront.net"
+              - "d1jixdz7dlou5z.cloudfront.net"
+              - ".console.aws.a2z.com"
+              - "d3h0qgp8iy04se.cloudfront.net"
+            TargetTypes:
+              - "HTTP_HOST"
+              - "TLS_SNI"
+            GeneratedRulesType: "ALLOWLIST"
+  EPELFirewallStatefulRuleGroup:
+    Type: "AWS::NetworkFirewall::RuleGroup"
+    Properties:
+      Capacity: 10
+      RuleGroupName: "allow-epel"
+      Type: "STATEFUL"
+      RuleGroup:
+        RulesSource:
+          RulesSourceList:
+            Targets: 
+              - "mirrors.fedoraproject.org"
+              - "d2lzkl7pfhq30w.cloudfront.net"
+            TargetTypes:
+              - "HTTP_HOST"
+              - "TLS_SNI"
+            GeneratedRulesType: "ALLOWLIST"
+  FirewallPolicy:
+    Type: "AWS::NetworkFirewall::FirewallPolicy"
+    Properties: 
+      FirewallPolicyName: "allow-aws-console-policy"
+      FirewallPolicy:
+        StatelessDefaultActions: 
+          - "aws:forward_to_sfe"
+        StatelessFragmentDefaultActions:
+          - "aws:forward_to_sfe"
+        StatefulRuleGroupReferences: 
+          - ResourceArn: !Ref FirewallStatefulRuleGroup
+          - ResourceArn: !Ref EPELFirewallStatefulRuleGroup
+  Firewall:
+    Type: "AWS::NetworkFirewall::Firewall"
+    Properties:
+      FirewallName: !Ref FirewallName
+      FirewallPolicyArn: !Ref FirewallPolicy
+      VpcId: !Ref VPC
+      SubnetMappings: 
+        - SubnetId: !Ref PublicSubnetA
+        - SubnetId: !Ref PublicSubnetB
+        - SubnetId: !Ref PublicSubnetC
+  FirewallLoggingConfiguration:
+    Type: "AWS::NetworkFirewall::LoggingConfiguration"
+    Properties:
+      FirewallArn: !GetAtt Firewall.FirewallArn
+      LoggingConfiguration:
+        LogDestinationConfigs:
+          - LogDestination: 
+              bucketName: !Ref FirewallLogsBucketName
+              prefix: "firewall-flow"
+            LogDestinationType: "S3"
+            LogType: "FLOW"
+          - LogDestination: 
+              bucketName: !Ref FirewallLogsBucketName
+              prefix: "firewall-alerts"
+            LogDestinationType: "S3"
+            LogType: "ALERT"
+#
+# VPC Endpoints
+#
+  SystemManagerSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Group for SSM VPCE"
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "udp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "icmp"
+          FromPort: 7
+          ToPort: 7
+      SecurityGroupIngress:
+        - CidrIp: "10.0.0.0/16"
+          Description: "Inbound Open To VPC"
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+  SystemManagerVPCE:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      SecurityGroupIds:
+        - !Ref SystemManagerSecurityGroup
+      ServiceName: "com.amazonaws.us-east-1.ssm"
+      SubnetIds:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+        - !Ref PublicSubnetC
+      VpcEndpointType: "Interface"
+      VpcId: !Ref VPC
+      PrivateDnsEnabled: true
+  SystemManagerMessagesVPCE:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      SecurityGroupIds:
+        - !Ref SystemManagerSecurityGroup
+      ServiceName: "com.amazonaws.us-east-1.ssmmessages"
+      SubnetIds:
+        - !Ref PublicSubnetA
+        - !Ref PublicSubnetB
+        - !Ref PublicSubnetC
+      VpcEndpointType: "Interface"
+      VpcId: !Ref VPC
+      PrivateDnsEnabled: true
+#
+# Tunneling Instance
+#
+  TunnelInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+  PrivateWorkspaceInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore'
+  TunnelnstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - Ref: "TunnelInstanceRole"
+  TunnelSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Group for tunnel host"
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "udp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "icmp"
+          FromPort: 7
+          ToPort: 7
+      SecurityGroupIngress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "Inbound SSH"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+        - CidrIp: "0.0.0.0/0"
+          Description: "Inbound ICMP"
+          IpProtocol: "icmp"
+          FromPort: 7
+          ToPort: 7
+  TunnelInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t3.medium"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: TunnelSecurityGroup
+          SubnetId:
+            Ref: PublicSubnetA
+      ImageId: !Ref LatestAmiId
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sdm"
+          Ebs:
+            VolumeType: 'gp3'
+            DeleteOnTermination: false
+            VolumeSize: 30
+      IamInstanceProfile: !Ref TunnelnstanceProfile
+      KeyName: !Ref KeyPairName
+      Tags:
+        - Key: "Name"
+          Value: "TunnelInstance"
+  PrivateWorkspacelnstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - Ref: "PrivateWorkspaceInstanceRole"
+  PrivateWorkspaceSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Group for tunnel host"
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "udp"
+          FromPort: 0
+          ToPort: 65535
+        - CidrIp: "0.0.0.0/0"
+          Description: "Outbound Egress"
+          IpProtocol: "icmp"
+          FromPort: 7
+          ToPort: 7
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref TunnelSecurityGroup
+          Description: "Inbound SSH"
+          IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+        - SourceSecurityGroupId: !Ref TunnelSecurityGroup
+          Description: "Inbound ICMP"
+          IpProtocol: "icmp"
+          FromPort: 7
+          ToPort: 7
+        - SourceSecurityGroupId: !Ref TunnelSecurityGroup
+          Description: "Inbound VNC"
+          IpProtocol: "tcp"
+          FromPort: 5901
+          ToPort: 5901
+        - SourceSecurityGroupId: !Ref TunnelSecurityGroup
+          Description: "Inbound VNC"
+          IpProtocol: "udp"
+          FromPort: 5901
+          ToPort: 5901
+  PrivateWorkspaceInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: "t3.medium"
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "false"
+          DeviceIndex: "0"
+          GroupSet:
+            - Ref: PrivateWorkspaceSecurityGroup
+          SubnetId:
+            Ref: PrivateSubnetA
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sdm"
+          Ebs:
+            VolumeType: 'gp3'
+            DeleteOnTermination: false
+            VolumeSize: 30
+      IamInstanceProfile: !Ref PrivateWorkspacelnstanceProfile
+      KeyName: !Ref KeyPairName
+      Tags:
+        - Key: "Name"
+          Value: "PrivateWorkspaceInstance"
