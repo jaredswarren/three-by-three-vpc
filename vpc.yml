@@ -760,3 +760,40 @@ Resources:
       Tags:
         - Key: "Name"
           Value: "PrivateWorkspaceInstance"
+Outputs:
+  VPC:
+    Description: "The 3x3 VPC"
+    Value: !Ref VPC
+  PublicSubnetA:
+    Description: "Public Subnet in Availability Zone A"
+    Value: !Ref PublicSubnetA
+  PublicSubnetB:
+    Description: "Public Subnet in Availability Zone B"
+    Value: !Ref PublicSubnetB
+  PublicSubnetC:
+    Description: "Public Subnet in Availability Zone C"
+    Value: !Ref PublicSubnetC
+  ProtectedSubnetA:
+    Description: "Protected Subnet in Availability Zone A"
+    Value: !Ref ProtectedSubnetA
+  ProtectedSubnetB:
+    Description: "Protected Subnet in Availability Zone B"
+    Value: !Ref ProtectedSubnetB
+  ProtectedSubnetC:
+    Description: "Protected Subnet in Availability Zone C"
+    Value: !Ref ProtectedSubnetC
+  PrivateSubnetA:
+    Description: "Private Subnet in Availability Zone A"
+    Value: !Ref PrivateSubnetA
+  PrivateSubnetB:
+    Description: "Private Subnet in Availability Zone B"
+    Value: !Ref PrivateSubnetB
+  PrivateSubnetC:
+    Description: "Private Subnet in Availability Zone C"
+    Value: !Ref PrivateSubnetC
+  TunnelSecurityGroup:
+    Description: "Security Group containing the tunneling instance"
+    Value: !Ref TunnelSecurityGroup
+  PrivateWorkspaceSecurityGroup:
+    Description: "Security Group containing the private workspace instance"
+    Value: !Ref PrivateWorkspaceSecurityGroup
