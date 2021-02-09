@@ -20,7 +20,7 @@ Parameters:
     Default: jarewarr-demo06-vpcflow
   FirewallName:
     Type: String
-    Default: NetworkFirewall
+    Default: NetworkFirewall-06
   Boto3LambdaLayerS3BucketName:
     Type: String
     Default: jarewarr-examples-us-east-1
@@ -35,7 +35,7 @@ Parameters:
     Default: crhelper-layer.zip
   LambdaSourceS3BucketName:
     Type: String
-    Default: jarewarr-examples-us-east-1
+    Default: jarewarr-demo06
   LambdaSourceS3Key:
     Type: String
     Default: setup-firewall-routes.zip
@@ -393,6 +393,9 @@ Resources:
               - "ec2:DeleteRouteTable"
               - "ec2:DescribeSubnets"
               - "ec2:CreateTags"
+              - "network-firewall:Describe*"
+              - "ec2:DescribeRouteTables"
+              - "ec2:DeleteRoute"
             Resource: "*"
           - Effect: "Allow"
             Action:
@@ -445,7 +448,7 @@ Resources:
           AvailabilityZone: "us-east-1c"
       VpcId: !Ref VPC
       GatewayId: !Ref IGW
-      AnotherArg: "abc"
+      FirewallName: !Ref FirewallName
     DependsOn: 
       - IGW
       - Firewall
@@ -468,7 +471,7 @@ Resources:
     Type: "AWS::NetworkFirewall::RuleGroup"
     Properties:
       Capacity: 15000
-      RuleGroupName: "allow-aws-console"
+      RuleGroupName: "allow-aws-console-access"
       Type: "STATEFUL"
       RuleGroup:
         RulesSource:
@@ -491,7 +494,7 @@ Resources:
     Type: "AWS::NetworkFirewall::RuleGroup"
     Properties:
       Capacity: 10
-      RuleGroupName: "allow-epel"
+      RuleGroupName: "allow-epel-repos"
       Type: "STATEFUL"
       RuleGroup:
         RulesSource:
@@ -506,7 +509,7 @@ Resources:
   FirewallPolicy:
     Type: "AWS::NetworkFirewall::FirewallPolicy"
     Properties: 
-      FirewallPolicyName: "allow-aws-console-policy"
+      FirewallPolicyName: "starting-allows"
       FirewallPolicy:
         StatelessDefaultActions: 
           - "aws:forward_to_sfe"
@@ -800,3 +803,12 @@ Outputs:
   PrivateWorkspaceSecurityGroup:
     Description: "Security Group containing the private workspace instance"
     Value: !Ref PrivateWorkspaceSecurityGroup
+  EIPNATAAddress:
+    Description: "IP Address of the NAT Gateway in Availability Zone A"
+    Value: !Ref EIPNATA
+  EIPNATBAddress:
+    Description: "IP Address of the NAT Gateway in Availability Zone B"
+    Value: !Ref EIPNATB
+  EIPNATCAddress:
+    Description: "IP Address of the NAT Gateway in Availability Zone C"
+    Value: !Ref EIPNATC

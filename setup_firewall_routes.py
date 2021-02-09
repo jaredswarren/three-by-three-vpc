@@ -9,11 +9,12 @@ ec2client = boto3.client('ec2')
 
 @helper.create
 @helper.update
-def sum_2_numbers(event, _):
+def addRouteTableToIGW(event, _):
     routes = event['ResourceProperties']['Routes']
     print(routes)
-
-    fw = fwclient.describe_firewall(FirewallName='NetworkFirewall')
+    firewallName = event['ResourceProperties']['FirewallName']
+    print("FirewallName: "+firewallName)
+    fw = fwclient.describe_firewall(FirewallName=firewallName)
     fwstate = fw['FirewallStatus']['SyncStates']
     gatewayId=event['ResourceProperties']['GatewayId']
     print(json.dumps(fwstate,indent=2))
@@ -57,10 +58,29 @@ def sum_2_numbers(event, _):
         GatewayId=gatewayId
         )
     print("Associated...")
+    return routeTableId
 
 @helper.delete
-def no_op(_, __):
-    pass
+def deleteRouteTable(event, _):
+    toDelete = event['PhysicalResourceId']
+    print("Deleting route table: "+toDelete)
+    tables = ec2client.describe_route_tables(
+        Filters=[
+            {
+                'Name': 'route-table-id',
+                'Values': [
+                    toDelete
+                ]
+            }
+        ]
+    )
+
+    for table in tables['RouteTables']:
+        for route in table['Routes']:
+            ec2client.delete_route(
+                DestinationCidrBlock=route['DestinationCidrBlock']
+            )
+
 
 def handler(event, context):
     print(event)
