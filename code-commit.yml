@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: A POC of code commit in a private subnet
+Resources:
+  VPCStack:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      TemplateURL: "https://jarewarr-demo06.s3.us-east-1.amazonaws.com/vpc.yml"
+      TimeoutInMinutes: 20
+  CodeCommitVPCEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      VpcId: !GetAtt VPCStack.Outputs.VPC
+      VpcEndpointType: "Interface"
+      ServiceName: "com.amazonaws.us-east-1.codecommit"
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnetA
+        - !GetAtt VPCStack.Outputs.PrivateSubnetB
+        - !GetAtt VPCStack.Outputs.PrivateSubnetC
+      PrivateDnsEnabled: true
+  CodeCommitGitVPCEndpoint:
+    Type: "AWS::EC2::VPCEndpoint"
+    Properties:
+      VpcId: !GetAtt VPCStack.Outputs.VPC
+      VpcEndpointType: "Interface"
+      ServiceName: "com.amazonaws.us-east-1.git-codecommit"
+      SubnetIds:
+        - !GetAtt VPCStack.Outputs.PrivateSubnetA
+        - !GetAtt VPCStack.Outputs.PrivateSubnetB
+        - !GetAtt VPCStack.Outputs.PrivateSubnetC
+      PrivateDnsEnabled: true
+  VPCIdOnlyPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Deny"
+            Action: 
+              - "*"
+            Resource:
+              - "*"
+            Condition:
+              "StringNotEquals":
+                "aws:SourceVpc": !GetAtt VPCStack.Outputs.VPC
+  VPCEndpointOnlyPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Deny"
+            Action: 
+              - "*"
+            Resource:
+              - "*"
+            Condition:
+              "StringNotEquals": 
+                "aws:SourceVpce": 
+                  - !Ref CodeCommitVPCEndpoint
+                  - !Ref CodeCommitGitVPCEndpoint
+  VPCCidrOnlyPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Deny"
+            Action: 
+              - "*"
+            Resource:
+              - "*"
+            Condition:
+              "NotIpAddress": 
+                "aws:SourceIp": 
+                  - !GetAtt VPCStack.Outputs.VPCCidrBlock
+  NATOnlyPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Deny"
+            Action: 
+              - "*"
+            Resource:
+              - "*"
+            Condition:
+              "NotIpAddress": 
+                "aws:SourceIp": 
+                  - !GetAtt VPCStack.Outputs.EIPNATAAddress
+                  - !GetAtt VPCStack.Outputs.EIPNATBAddress 
+                  - !GetAtt VPCStack.Outputs.EIPNATCAddress
+  VPCOnlyFourCriteriaPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Deny"
+            Action: 
+              - "*"
+            Resource:
+              - "*"
+            Condition:
+              NotIpAddress: 
+                aws:SourceIp: 
+                  - !GetAtt VPCStack.Outputs.EIPNATAAddress
+                  - !GetAtt VPCStack.Outputs.EIPNATBAddress 
+                  - !GetAtt VPCStack.Outputs.EIPNATCAddress
+                  - !GetAtt VPCStack.Outputs.VPCCidrBlock
+              StringNotEquals:
+                aws:SourceVpce: 
+                  - !Ref CodeCommitVPCEndpoint
+                  - !Ref CodeCommitGitVPCEndpoint
+                aws:SourceVpc:
+                  - !GetAtt VPCStack.Outputs.VPC
+  NATOnlyCodeCommitUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: "codecommit-natonly"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - !Ref NATOnlyPolicy
+  VPCIdOnlyCodeCommitUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: "codecommit-vpcidonly"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - !Ref VPCIdOnlyPolicy
+  VPCEndpointOnlyCodeCommitUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: "codecommit-vpcendpointonly"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - !Ref VPCEndpointOnlyPolicy
+  VPCCidrOnlyCodeCommitUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: "codecommit-vpccidronly"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - !Ref VPCCidrOnlyPolicy
+  VPCOnlyFourCriteriaCodeCommitUser:
+    Type: "AWS::IAM::User"
+    Properties:
+      UserName: "codecommit-vpconlyfourcriteria"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - !Ref VPCOnlyFourCriteriaPolicy
