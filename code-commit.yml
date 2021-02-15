@@ -90,6 +90,9 @@ Resources:
                   - !GetAtt VPCStack.Outputs.EIPNATAAddress
                   - !GetAtt VPCStack.Outputs.EIPNATBAddress 
                   - !GetAtt VPCStack.Outputs.EIPNATCAddress
+              "Bool":
+                "aws:ViaAWSService": "false"
+
   VPCOnlyFourCriteriaPolicy:
     Type: "AWS::IAM::ManagedPolicy"
     Properties:
@@ -114,6 +117,25 @@ Resources:
                   - !Ref CodeCommitGitVPCEndpoint
                 aws:SourceVpc:
                   - !GetAtt VPCStack.Outputs.VPC
+  CodeCommitKMSPolicy:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: "Allow"
+            Action: 
+              - "kms:Encrypt"
+              - "kms:Decrypt"
+              - "kms:ReEncrypt*"
+              - "kms:GenerateDataKey**"
+              - "kms:DescribeKey**"
+            Resource:
+              - "*"
+            Condition:
+              "StringEquals":
+                "kmsViaService": "codecommit.us-east-1.amazonaws.com"
+                "kmsCallerAccount": !Ref "AWS::AccountId"
   NATOnlyCodeCommitUser:
     Type: "AWS::IAM::User"
     Properties:
@@ -121,6 +143,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
         - !Ref NATOnlyPolicy
+        - !Ref CodeCommitKMSPolicy
   VPCIdOnlyCodeCommitUser:
     Type: "AWS::IAM::User"
     Properties:
